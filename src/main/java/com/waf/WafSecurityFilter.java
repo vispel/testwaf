@@ -1,16 +1,15 @@
 package com.waf;
 
-import com.waf.utils.consts.FilterParams;
+import com.waf.facade.FilterInitializationFacade;
+import com.waf.rules.loader.RuleLoader;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.lang.Nullable;
 import org.springframework.util.Assert;
-import org.springframework.util.CollectionUtils;
-import org.springframework.util.StringUtils;
 
 import javax.servlet.*;
-import java.util.Enumeration;
-import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 
 public class WafSecurityFilter implements Filter {
@@ -19,41 +18,40 @@ public class WafSecurityFilter implements Filter {
 
     @Nullable
     private FilterConfig filterConfig;
+    private SecurityParams securityParams = new SecurityParams();
+
     private boolean restartCompletelyOnNextRequest = false;
 
+
+    @Autowired
+    private FilterInitializationFacade filterInitializationFacade;
+
+
+    public static boolean isDebug = false;
+
+
+    private RuleLoader ruleLoader;
+
+
     public void init(FilterConfig filterConfig) throws ServletException {
+
         Assert.notNull(filterConfig, "FilterConfig must not be null");
         this.filterConfig = filterConfig;
-
+        isDebug = filterInitializationFacade.getDebugValue();
         try {
-            checkMissingProps(filterConfig, FilterParams.REQUIRED_FILTER_PARAMS);
+            filterInitializationFacade.checkMissingProps(filterConfig, getRequiredParams());
             restartCompletelyWhenRequired();
         } catch (Exception e) {
-            // not throwing the exception here in order to init the filter laziy (when the error condition is over and keep the app meanwhile blocked)
+            // not throwing the exception here in order to init the filter lazy (when the error condition is over and keep the app meanwhile blocked)
             logger.error("Unable to initialize security filter", e);
         }
 
-
-
     }
 
-    private static void checkMissingProps(FilterConfig filterConfig, Set<String> requiredProperties) throws ServletException {
-
-        Set<String> missingProps = !CollectionUtils.isEmpty(requiredProperties) ? new HashSet(requiredProperties) : null;
-        Enumeration paramNames = filterConfig.getInitParameterNames();
-
-        while(paramNames.hasMoreElements()) {
-            String property = (String)paramNames.nextElement();
-            String value = filterConfig.getInitParameter(property);
-            if (missingProps != null && missingProps.contains(value)) {
-                missingProps.remove(property);
-            }
-        }
-
-        if(!CollectionUtils.isEmpty(missingProps)) {
-            throw new ServletException("Initialization from FilterConfig for filter '" + filterConfig.getFilterName() + "' failed; the following required properties were missing: " + StringUtils.collectionToDelimitedString(missingProps, ", "));
-        }
+    private Set<String> getRequiredParams() {
+        return securityParams.getRequiredParams().keySet();
     }
+
 
     public void registerConfigReloadOnNextRequest() {
         this.restartCompletelyOnNextRequest = true;
@@ -82,9 +80,11 @@ public class WafSecurityFilter implements Filter {
     }
 
     private void checkRequirementsAndInitialize() throws UnavailableException {
-        ConfigurationLoader loader = filterConfig::getInitParameter;
-
+        for(Map.Entry<String,Object> param: securityParams.getParams().entrySet()){
+            filterInitializationFacade.checkAndInitialize(param);
+        }
     }
+
     public void doFilter(ServletRequest servletRequest, ServletResponse servletResponse, FilterChain filterChain) {
 
     }
